@@ -70,7 +70,7 @@ export class Game {
 
     this.camera = new THREE.PerspectiveCamera(35, width / height, 0.1, 100);
     this.camera.position.set(0, 14, 12);
-    this.camera.lookAt(0, 0, 2);
+    this.camera.lookAt(0, 0, 2.0);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setSize(width, height);
@@ -222,6 +222,7 @@ export class Game {
     ];
     const catCounters: Record<string, number> = { 'SPORTS': 0, 'ART': 0 };
     const tileGeo = new RoundedBoxGeometry(1.6, 0.6, 1.6, 6, 0.15);
+    const initialIsLandscape = width > height;
 
     allWords.forEach((item) => {
       const cat = this.CATEGORIES[item.c];
@@ -243,8 +244,9 @@ export class Game {
       tile.castShadow = true;
       tile.receiveShadow = true;
 
-      const startX = (Math.random() - 0.5) * 5;
-      const startZ = (Math.random() - 0.5) * 3 - 1.5;
+      // Spawn in a tighter cluster for portrait mode, wider for landscape
+      const startX = (Math.random() - 0.5) * (initialIsLandscape ? 4.0 : 2.5);
+      const startZ = (Math.random() - 0.5) * 2.0 - 0.8;
       const startY = 1.0 + Math.random() * 0.5;
       tile.position.set(startX, startY, startZ);
       tile.rotation.y = (Math.random() - 0.5) * 0.5;
@@ -263,7 +265,9 @@ export class Game {
         clusterOffset: clusterOffsets[catCounters[item.c]++],
         floatTarget: tile.position.clone(),
         hintLight: hintLight,
-        topMat: topMat
+        topMat: topMat,
+        velocity: new THREE.Vector3(0, 0, 0),
+        prevPosition: tile.position.clone()
       };
       this.scene.add(tile);
       this.tiles.push(tile);
@@ -461,7 +465,6 @@ export class Game {
     const intersects = this.getIntersects(e, this.tiles);
     if (intersects.length > 0) {
       let obj: THREE.Object3D | null = intersects[0].object;
-      // Resolve up to root Mesh
       while (obj && obj.parent && obj.parent !== this.scene) {
         obj = obj.parent;
       }
@@ -469,6 +472,7 @@ export class Game {
       if (obj instanceof THREE.Mesh && !obj.userData.isSnapped) {
         this.draggedTile = obj;
         this.draggedTile.userData.isDragging = true;
+        this.draggedTile.userData.prevPosition.copy(this.draggedTile.position);
 
         const planeIntersects = this.getIntersects(e, [this.dragPlane]);
         if (planeIntersects.length > 0) {
@@ -492,10 +496,19 @@ export class Game {
     if (this.draggedTile) {
       const planeIntersects = this.getIntersects(e, [this.dragPlane]);
       if (planeIntersects.length > 0) {
-        this.draggedTile.position.copy(planeIntersects[0].point.add(this.dragOffset));
-        if (this.isLandscape) {
-          this.draggedTile.position.x = Math.min(this.draggedTile.position.x, 3);
-        }
+        this.draggedTile.userData.prevPosition.copy(this.draggedTile.position);
+        
+        const targetPos = planeIntersects[0].point.add(this.dragOffset);
+        // Constraint dragged tile within boundaries
+        const minX = this.isLandscape ? -6.0 : -2.3;
+        const maxX = this.isLandscape ? 6.0 : 2.3;
+        const minZ = this.isLandscape ? -4.5 : -3.5;
+        const maxZ = this.isLandscape ? 3.5 : 2.5;
+
+        targetPos.x = Math.max(minX, Math.min(maxX, targetPos.x));
+        targetPos.z = Math.max(minZ, Math.min(maxZ, targetPos.z));
+
+        this.draggedTile.position.copy(targetPos);
       }
     }
   }
@@ -569,6 +582,7 @@ export class Game {
       cluster.forEach((t) => {
         t.userData.isSnapped = true;
         t.userData.isMagnetized = false;
+        t.userData.velocity.set(0, 0, 0);
         const targetPos = basePos.clone().add(t.userData.clusterOffset);
 
         gsap.to(t.position, { x: targetPos.x, y: targetPos.y, z: targetPos.z, duration: 0.5, delay: delay, ease: 'back.out(1.2)' });
@@ -640,7 +654,6 @@ export class Game {
         if (endCard) endCard.classList.add('visible');
         gsap.to(this.camera.position, { x: this.isLandscape ? 4 : 5, z: 15, duration: 10, ease: 'power1.inOut' });
         
-        // Notify SDK that the game is finished
         sdk.finish();
       }, 1000);
     }
@@ -651,7 +664,7 @@ export class Game {
   }
 
   // ==========================================
-  // RENDER & ANIMATION LOOP
+  // RENDER & ANIMATION LOOP (COLLISIONS + PHYSICS)
   // ==========================================
   private animate = (): void => {
     requestAnimationFrame(this.animate);
@@ -659,10 +672,10 @@ export class Game {
 
     const time = this.clock.getElapsedTime();
 
-    // Camera parallax + ambient wave movement
+    // Camera parallax + ambient wave movement (centered at 0, 0, 1.2)
     if (!this.draggedTile && this.completedGroups < 2) {
       const targetX = this.mouse.x * 2;
-      const targetZ = (this.isLandscape ? 11 : 12) + this.mouse.y * 1.5;
+      const targetZ = (this.isLandscape ? 11 : 12.5) + this.mouse.y * 1.5;
       this.camera.position.x += (targetX - this.camera.position.x) * 0.05;
       this.camera.position.z += (targetZ - this.camera.position.z) * 0.05;
 
@@ -670,8 +683,8 @@ export class Game {
         this.camera.position.x += Math.sin(time * 0.5) * 0.005;
         this.camera.position.z += Math.cos(time * 0.3) * 0.005;
       }
-      this.camera.lookAt(this.isLandscape ? 2 : 0, 0, 2);
     }
+    this.camera.lookAt(0, 0, 1.2);
 
     this.noisePass.material.uniforms.time.value = time;
 
@@ -685,20 +698,31 @@ export class Game {
     if (this.draggedTile) {
       this.magRing.position.copy(this.draggedTile.position);
       this.magRing.position.y = 0.05;
+
+      // Track dragged tile's velocity
+      this.draggedTile.userData.velocity.subVectors(this.draggedTile.position, this.draggedTile.userData.prevPosition);
+      this.draggedTile.userData.prevPosition.copy(this.draggedTile.position);
     }
 
-    // Tiles animation and magnet physics logic
+    // Apply forces and update free tile positions
     this.tiles.forEach((tile) => {
       if (tile.userData.isSnapped) return;
 
       if (this.draggedTile) {
-        if (tile === this.draggedTile) return;
+        if (tile === this.draggedTile) {
+          tile.position.y += (1.5 - tile.position.y) * 0.1; // lift drag
+          return;
+        }
 
         if (tile.userData.category === this.draggedTile.userData.category) {
           const dist = tile.position.distanceTo(this.draggedTile.position);
           if (dist < 4.5) {
+            // Magnet attraction force
             const targetPos = this.draggedTile.position.clone().add(tile.userData.clusterOffset);
-            tile.position.lerp(targetPos, 0.08);
+            const forceX = (targetPos.x - tile.position.x) * 0.12;
+            const forceZ = (targetPos.z - tile.position.z) * 0.12;
+            tile.userData.velocity.x += forceX;
+            tile.userData.velocity.z += forceZ;
             tile.userData.isMagnetized = true;
 
             // Connection arcs
@@ -722,14 +746,139 @@ export class Game {
             }
           } else {
             tile.userData.isMagnetized = false;
-            tile.userData.floatTarget.y = tile.userData.baseY + Math.sin(time * 2 + tile.userData.randomOff) * 0.2;
-            tile.position.lerp(tile.userData.floatTarget, 0.03);
+            // Float attraction force
+            tile.userData.floatTarget.y = tile.userData.baseY + Math.sin(time * 2 + tile.userData.randomOff) * 0.15;
+            const forceX = (tile.userData.floatTarget.x - tile.position.x) * 0.02;
+            const forceZ = (tile.userData.floatTarget.z - tile.position.z) * 0.02;
+            tile.userData.velocity.x += forceX;
+            tile.userData.velocity.z += forceZ;
           }
+        } else {
+          // Non-matching category, float towards original position
+          tile.userData.isMagnetized = false;
+          tile.userData.floatTarget.y = tile.userData.baseY + Math.sin(time * 2 + tile.userData.randomOff) * 0.15;
+          const forceX = (tile.userData.floatTarget.x - tile.position.x) * 0.02;
+          const forceZ = (tile.userData.floatTarget.z - tile.position.z) * 0.02;
+          tile.userData.velocity.x += forceX;
+          tile.userData.velocity.z += forceZ;
         }
       } else {
-        tile.userData.floatTarget.y = tile.userData.baseY + Math.sin(time * 2 + tile.userData.randomOff) * 0.2;
-        tile.position.lerp(tile.userData.floatTarget, 0.02);
+        // No drag, all tiles float towards home
+        tile.userData.isMagnetized = false;
+        tile.userData.floatTarget.y = tile.userData.baseY + Math.sin(time * 2 + tile.userData.randomOff) * 0.15;
+        const forceX = (tile.userData.floatTarget.x - tile.position.x) * 0.02;
+        const forceZ = (tile.userData.floatTarget.z - tile.position.z) * 0.02;
+        tile.userData.velocity.x += forceX;
+        tile.userData.velocity.z += forceZ;
+        
         tile.rotation.y += Math.sin(time + tile.userData.randomOff) * 0.002;
+      }
+
+      // Update positions
+      tile.position.x += tile.userData.velocity.x;
+      tile.position.z += tile.userData.velocity.z;
+      tile.position.y += (tile.userData.floatTarget.y - tile.position.y) * 0.1;
+      
+      // Damp velocity
+      tile.userData.velocity.multiplyScalar(0.85);
+
+      if (tile.userData.isMagnetized) {
+        tile.rotation.y += (0 - tile.rotation.y) * 0.1;
+      }
+    });
+
+    // ==========================================
+    // 2D CIRCLE-CIRCLE COLLISION REPULSION
+    // ==========================================
+    const radius = 1.7; // Sum of bounding radii
+    for (let i = 0; i < this.tiles.length; i++) {
+      const tileA = this.tiles[i];
+      if (tileA.userData.isSnapped) continue;
+
+      for (let j = i + 1; j < this.tiles.length; j++) {
+        const tileB = this.tiles[j];
+        if (tileB.userData.isSnapped) continue;
+
+        const dx = tileB.position.x - tileA.position.x;
+        const dz = tileB.position.z - tileA.position.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+
+        if (dist < radius) {
+          const overlap = radius - dist;
+          let nx = dx;
+          let nz = dz;
+          if (dist === 0) {
+            nx = Math.random() - 0.5;
+            nz = Math.random() - 0.5;
+            const len = Math.sqrt(nx * nx + nz * nz);
+            nx /= len;
+            nz /= len;
+          } else {
+            nx /= dist;
+            nz /= dist;
+          }
+
+          if (tileA.userData.isDragging) {
+            // Dragged tile pushes other tile out
+            tileB.position.x += nx * overlap;
+            tileB.position.z += nz * overlap;
+            
+            // Transfer drag impulse
+            tileB.userData.velocity.x += nx * overlap * 0.5 + tileA.userData.velocity.x * 0.4;
+            tileB.userData.velocity.z += nz * overlap * 0.5 + tileA.userData.velocity.z * 0.4;
+          } else if (tileB.userData.isDragging) {
+            // Dragged tile pushes other tile out
+            tileA.position.x -= nx * overlap;
+            tileA.position.z -= nz * overlap;
+
+            // Transfer drag impulse
+            tileA.userData.velocity.x -= nx * overlap * 0.5 - tileB.userData.velocity.x * 0.4;
+            tileA.userData.velocity.z -= nz * overlap * 0.5 - tileB.userData.velocity.z * 0.4;
+          } else {
+            // Both are floating, push both apart equally
+            const pushX = nx * overlap * 0.5;
+            const pushZ = nz * overlap * 0.5;
+            tileA.position.x -= pushX;
+            tileA.position.z -= pushZ;
+            tileB.position.x += pushX;
+            tileB.position.z += pushZ;
+
+            // Add repulsion velocities
+            const bounceForce = overlap * 0.05;
+            tileA.userData.velocity.x -= nx * bounceForce;
+            tileA.userData.velocity.z -= nz * bounceForce;
+            tileB.userData.velocity.x += nx * bounceForce;
+            tileB.userData.velocity.z += nz * bounceForce;
+          }
+        }
+      }
+    }
+
+    // ==========================================
+    // BOUNDARY CONSTRAINTS
+    // ==========================================
+    const minX = this.isLandscape ? -6.0 : -2.3;
+    const maxX = this.isLandscape ? 6.0 : 2.3;
+    const minZ = this.isLandscape ? -4.5 : -3.5;
+    const maxZ = this.isLandscape ? 3.5 : 2.5;
+
+    this.tiles.forEach((tile) => {
+      if (tile.userData.isSnapped) return;
+
+      if (tile.position.x < minX) {
+        tile.position.x = minX;
+        tile.userData.velocity.x *= -0.5;
+      } else if (tile.position.x > maxX) {
+        tile.position.x = maxX;
+        tile.userData.velocity.x *= -0.5;
+      }
+
+      if (tile.position.z < minZ) {
+        tile.position.z = minZ;
+        tile.userData.velocity.z *= -0.5;
+      } else if (tile.position.z > maxZ) {
+        tile.position.z = maxZ;
+        tile.userData.velocity.z *= -0.5;
       }
     });
 
@@ -756,7 +905,7 @@ export class Game {
   }
 
   // ==========================================
-  // PLAYABLE LIFECYCLE HOOKS
+  // PLAYABLE LIFECYCLE HOOKS & LAYOUT CALC
   // ==========================================
   public resize = (width: number, height: number): void => {
     const uiContainer = document.getElementById('ui-layer');
@@ -765,20 +914,27 @@ export class Game {
       uiContainer.style.height = `${height}px`;
     }
 
-    this.isLandscape = width > height;
+    const aspect = width / height;
+    this.isLandscape = aspect > 1.0;
+
     if (this.isLandscape) {
-      this.dropZones[0].position.set(4.5, 0.1, -2);
-      this.dropZones[1].position.set(4.5, 0.1, 2);
-      this.camera.position.set(1.5, 14, 11);
-      this.camera.fov = 40;
+      // Balanced Landscape Layout: One tray on the left, one on the right
+      this.dropZones[0].position.set(-4.5, 0.1, 0);
+      this.dropZones[1].position.set(4.5, 0.1, 0);
+      
+      this.camera.fov = 38;
+      this.camera.position.set(0, 14, 11);
     } else {
-      this.dropZones[0].position.set(-2.2, 0.1, 4.5);
-      this.dropZones[1].position.set(2.2, 0.1, 4.5);
-      this.camera.position.set(0, 14, 12);
-      this.camera.fov = 35;
+      // Portrait Layout: pull trays slightly inward and upward to prevent cutoff
+      this.dropZones[0].position.set(-1.8, 0.1, 3.8);
+      this.dropZones[1].position.set(1.8, 0.1, 3.8);
+      
+      // Dynamic zoom out for narrow screen viewports (mobile)
+      this.camera.fov = Math.min(Math.max(38 / aspect, 38), 58);
+      this.camera.position.set(0, 15.5, 12.5);
     }
 
-    this.camera.aspect = width / height;
+    this.camera.aspect = aspect;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height);
     this.composer.setSize(width, height);
