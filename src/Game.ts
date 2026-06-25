@@ -41,6 +41,12 @@ export class Game {
   
   private clock: THREE.Clock;
   public isPaused: boolean = false;
+
+  private hintPointer: THREE.Mesh | null = null;
+  private hintTween: gsap.core.Tween | null = null;
+  private hintScaleTween: gsap.core.Tween | null = null;
+  private baseCameraY: number = 14;
+  private baseCameraZ: number = 12;
   
   private isLandscape: boolean = false;
   private draggedTile: THREE.Mesh | null = null;
@@ -274,6 +280,44 @@ export class Game {
       this.tiles.push(tile);
     });
 
+    // Create floating abstract hint pointer above the first tile
+    if (this.tiles.length > 0) {
+      const coneGeo = new THREE.ConeGeometry(0.18, 0.4, 4);
+      coneGeo.rotateX(Math.PI); // Point down
+      const coneMat = new THREE.MeshPhysicalMaterial({
+        color: 0x8fb866,
+        emissive: 0x8fb866,
+        emissiveIntensity: 1.5,
+        roughness: 0.2,
+        transparent: true,
+        opacity: 0.95
+      });
+      this.hintPointer = new THREE.Mesh(coneGeo, coneMat);
+      
+      const firstTile = this.tiles[0];
+      this.hintPointer.position.copy(firstTile.position);
+      this.hintPointer.position.y += 1.2;
+      this.scene.add(this.hintPointer);
+
+      // Bouncing and scaling hint animation
+      this.hintTween = gsap.to(this.hintPointer.position, {
+        y: '+=0.3',
+        duration: 0.6,
+        yoyo: true,
+        repeat: -1,
+        ease: 'power1.inOut'
+      });
+      this.hintScaleTween = gsap.to(this.hintPointer.scale, {
+        x: 1.15,
+        y: 1.15,
+        z: 1.15,
+        duration: 0.6,
+        yoyo: true,
+        repeat: -1,
+        ease: 'power1.inOut'
+      });
+    }
+
     this.dragPlane = new THREE.Mesh(
       new THREE.PlaneGeometry(100, 100),
       new THREE.MeshBasicMaterial({ visible: false })
@@ -463,6 +507,29 @@ export class Game {
 
   private onPointerDown = (e: PointerEvent): void => {
     if (this.completedGroups >= 2) return;
+
+    // Dismiss abstract hint pointer on first interaction
+    if (this.hintPointer) {
+      if (this.hintTween) this.hintTween.kill();
+      if (this.hintScaleTween) this.hintScaleTween.kill();
+      
+      const hintPtr = this.hintPointer;
+      this.hintPointer = null; // Prevent multi-triggers
+      gsap.to((hintPtr.material as THREE.Material), {
+        opacity: 0,
+        duration: 0.3,
+        onComplete: () => {
+          this.scene.remove(hintPtr);
+          hintPtr.geometry.dispose();
+          if (Array.isArray(hintPtr.material)) {
+            hintPtr.material.forEach(m => m.dispose());
+          } else {
+            hintPtr.material.dispose();
+          }
+        }
+      });
+    }
+
     const intersects = this.getIntersects(e, this.tiles);
     if (intersects.length > 0) {
       let obj: THREE.Object3D | null = intersects[0].object;
@@ -673,11 +740,19 @@ export class Game {
 
     const time = this.clock.getElapsedTime();
 
+    // Track hintPointer position above first tile
+    if (this.hintPointer && this.tiles.length > 0) {
+      this.hintPointer.position.x = this.tiles[0].position.x;
+      this.hintPointer.position.z = this.tiles[0].position.z;
+    }
+
     // Camera parallax + ambient wave movement (centered at 0, 0, 1.2)
     if (!this.draggedTile && this.completedGroups < 2) {
       const targetX = this.mouse.x * 2;
-      const targetZ = (this.isLandscape ? 11 : 12.5) + this.mouse.y * 1.5;
+      const targetY = this.baseCameraY;
+      const targetZ = this.baseCameraZ + this.mouse.y * 1.5;
       this.camera.position.x += (targetX - this.camera.position.x) * 0.05;
+      this.camera.position.y += (targetY - this.camera.position.y) * 0.05;
       this.camera.position.z += (targetZ - this.camera.position.z) * 0.05;
 
       if (Math.abs(this.mouse.x) < 0.01 && Math.abs(this.mouse.y) < 0.01) {
@@ -685,7 +760,7 @@ export class Game {
         this.camera.position.z += Math.cos(time * 0.3) * 0.005;
       }
     }
-    this.camera.lookAt(0, 0, 1.2);
+    this.camera.lookAt(0, 0, 0.5);
 
     this.noisePass.material.uniforms.time.value = time;
 
@@ -919,20 +994,34 @@ export class Game {
     this.isLandscape = aspect > 1.0;
 
     if (this.isLandscape) {
-      // Balanced Landscape Layout: One tray on the left, one on the right
-      this.dropZones[0].position.set(-4.5, 0.1, 0);
-      this.dropZones[1].position.set(4.5, 0.1, 0);
-      
-      this.camera.fov = 38;
-      this.camera.position.set(0, 14, 11);
+      if (aspect > 1.5) {
+        // Widescreen Layout: zoom out camera slightly and lift height to center table elements
+        this.dropZones[0].position.set(-5.0, 0.1, 0);
+        this.dropZones[1].position.set(5.0, 0.1, 0);
+        
+        this.camera.fov = 34;
+        this.baseCameraY = 12.5;
+        this.baseCameraZ = 10.0;
+      } else {
+        // Standard Landscape (e.g. tablet viewports)
+        this.dropZones[0].position.set(-4.2, 0.1, 0);
+        this.dropZones[1].position.set(4.2, 0.1, 0);
+        
+        this.camera.fov = 38;
+        this.baseCameraY = 13.5;
+        this.baseCameraZ = 10.5;
+      }
+      this.camera.position.set(0, this.baseCameraY, this.baseCameraZ);
     } else {
-      // Portrait Layout: pull trays slightly inward and upward to prevent cutoff
+      // Portrait Layout: pull trays inward and upward to prevent cutoff
       this.dropZones[0].position.set(-1.8, 0.1, 3.8);
       this.dropZones[1].position.set(1.8, 0.1, 3.8);
       
       // Dynamic zoom out for narrow screen viewports (mobile)
       this.camera.fov = Math.min(Math.max(38 / aspect, 38), 58);
-      this.camera.position.set(0, 15.5, 12.5);
+      this.baseCameraY = 15.5;
+      this.baseCameraZ = 12.5;
+      this.camera.position.set(0, this.baseCameraY, this.baseCameraZ);
     }
 
     this.camera.aspect = aspect;
