@@ -1,26 +1,155 @@
-body,
-html {
-  margin: 0;
-  padding: 0;
+:root {
+    --color-bg: #3d2b18; /* V2: Warmer, less horror background */
+    --color-text: #fff;
+    --color-accent: #8fb866;
+    --font-main: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
-html {
-  background-color: #fff;
-  overflow: hidden;
-  width: 100%;
-  height: 100%;
-}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
 body {
-  height: inherit;
-  width: inherit;
+    background-color: var(--color-bg);
+    overflow: hidden;
+    font-family: var(--font-main);
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
 }
-* {
-  -webkit-tap-highlight-color: transparent;
-  -webkit-touch-callout: none;
-  -webkit-user-select: none;
-  -khtml-user-select: none;
-  -moz-user-select: none;
-  -ms-user-select: none;
-  user-select: none;
-  -webkit-touch-action: none;
-  touch-action: none;
+
+#webgl-container {
+    position: absolute;
+    top: 0; left: 0; width: 100vw; height: 100vh;
+    z-index: 1;
+}
+
+/* V2: Lighter Cinematic Vignette Overlay */
+#vignette {
+    position: absolute;
+    top: 0; left: 0; width: 100vw; height: 100vh;
+    background: radial-gradient(circle, rgba(0,0,0,0) 40%, rgba(15,10,5,0.4) 100%);
+    pointer-events: none;
+    z-index: 2;
+}
+
+#ui-layer {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 10;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 2rem;
+}
+
+/* V1: Improved instruction text visibility and removed pulse */
+.header {
+    text-align: center;
+    color: rgba(255,255,255,0.9);
+    font-weight: 600;
+    letter-spacing: 1px;
+    font-size: 18px;
+    text-transform: uppercase;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+}
+
+/* H4: Enhanced End Card */
+#end-card {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(20, 15, 10, 0.7);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+#end-card.visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.close-btn {
+    position: absolute;
+    top: 20px; right: 25px;
+    color: rgba(255,255,255,0.6);
+    font-size: 28px; font-weight: bold;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+.close-btn:hover { color: white; }
+
+.app-icon {
+    width: 80px; height: 80px;
+    background: #f0e8d8;
+    border-radius: 18px;
+    margin-bottom: 12px;
+    display: flex; align-items: center; justify-content: center;
+    color: #1a3b5c; font-weight: 900; font-size: 20px; line-height: 1;
+    text-align: center;
+    box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+    transform: translateY(20px);
+    transition: transform 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.stars {
+    color: #FFD700;
+    font-size: 22px;
+    margin-bottom: 8px;
+    transform: translateY(20px);
+    transition: transform 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) 0.05s;
+}
+
+.win-title {
+    font-size: 2.5rem;
+    font-weight: 800;
+    color: #fff;
+    margin-bottom: 0.5rem;
+    text-shadow: 0 4px 20px rgba(143, 184, 102, 0.6);
+    transform: translateY(20px);
+    transition: transform 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) 0.1s;
+    text-align: center;
+}
+
+.teaser {
+    color: rgba(255,255,255,0.8);
+    font-size: 16px;
+    margin-bottom: 24px;
+    transform: translateY(20px);
+    transition: transform 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) 0.15s;
+}
+
+#end-card.visible .app-icon,
+#end-card.visible .stars,
+#end-card.visible .win-title,
+#end-card.visible .teaser,
+#end-card.visible .cta-button { transform: translateY(0); }
+
+.cta-button {
+    background: linear-gradient(135deg, #8fb866 0%, #688a45 100%);
+    color: white;
+    border: none;
+    padding: 18px 40px;
+    font-size: 20px;
+    font-weight: bold;
+    border-radius: 30px;
+    cursor: pointer;
+    box-shadow: 0 10px 30px rgba(104, 138, 69, 0.4);
+    transform: translateY(20px);
+    transition: all 0.3s ease, transform 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) 0.2s;
+    pointer-events: auto;
+}
+
+.cta-button:hover { transform: scale(1.05) translateY(-2px) !important; box-shadow: 0 15px 40px rgba(104, 138, 69, 0.6); }
+.cta-button:active { transform: scale(0.95) !important; }
+
+#loader {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    color: white; font-weight: bold; z-index: 100; transition: opacity 0.5s;
 }
