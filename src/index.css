@@ -160,3 +160,14 @@ body {
     position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
     color: white; font-weight: bold; z-index: 100; transition: opacity 0.5s;
 }
+
+#tutorial-hand {
+    position: absolute;
+    left: 0;
+    top: 0;
+    pointer-events: none;
+    z-index: 15;
+    opacity: 0;
+    transform: translate(-50%, -50%);
+    filter: drop-shadow(0 4px 8px rgba(0,0,0,0.5));
+}

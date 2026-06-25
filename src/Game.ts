@@ -33,7 +33,7 @@ export class Game {
   
   private tiles: THREE.Mesh[] = [];
   private dropZones: THREE.Group[] = [];
-  private lines: THREE.Mesh[] = [];
+  private lineGroups: THREE.Group[] = [];
   private particleSystems: Array<{
     mesh: THREE.Points;
     vels: THREE.Vector3[];
@@ -43,9 +43,13 @@ export class Game {
   private clock: THREE.Clock;
   public isPaused: boolean = false;
 
-  private hintPointer: THREE.Mesh | null = null;
-  private hintTween: gsap.core.Tween | null = null;
-  private hintScaleTween: gsap.core.Tween | null = null;
+  private tutorialTimeline: gsap.core.Timeline | null = null;
+  private tutorialTimeoutId: any = null;
+  private ctaVisible: boolean = false;
+  private cameraOffset: THREE.Vector3 = new THREE.Vector3();
+  private tileShadows: THREE.Mesh[] = [];
+  private softShadowTex: THREE.CanvasTexture | null = null;
+  
   private baseCameraY: number = 14;
   private baseCameraZ: number = 12;
   
@@ -88,8 +92,7 @@ export class Game {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setSize(width, height);
     this.renderer.setPixelRatio(this.isMobile ? 1.0 : Math.min(window.devicePixelRatio, 1.5));
-    this.renderer.shadowMap.enabled = !this.isMobile;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.enabled = false;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.1;
     container.appendChild(this.renderer.domElement);
@@ -145,16 +148,7 @@ export class Game {
 
     this.keyLight = new THREE.DirectionalLight('#fff0dd', 2.2);
     this.keyLight.position.set(5, 15, 2);
-    this.keyLight.castShadow = true;
-    this.keyLight.shadow.mapSize.width = 1024;
-    this.keyLight.shadow.mapSize.height = 1024;
-    this.keyLight.shadow.camera.near = 0.5;
-    this.keyLight.shadow.camera.far = 30;
-    this.keyLight.shadow.camera.left = -10;
-    this.keyLight.shadow.camera.right = 10;
-    this.keyLight.shadow.camera.top = 10;
-    this.keyLight.shadow.camera.bottom = -10;
-    this.keyLight.shadow.bias = -0.001;
+    this.keyLight.castShadow = false;
     this.scene.add(this.keyLight);
 
     this.warmFill = new THREE.DirectionalLight('#ffcba4', 1.0);
@@ -165,10 +159,15 @@ export class Game {
     // 4. MATERIALS & PROCEDURAL TEXTURES
     // ==========================================
     const maxAnisotropy = this.renderer.capabilities.getMaxAnisotropy();
+    this.softShadowTex = this.createShadowTexture();
+
     this.tableMat = new THREE.MeshPhysicalMaterial({
       map: this.createWoodTexture(maxAnisotropy),
+      normalMap: this.createWoodNormalTexture(maxAnisotropy),
+      normalScale: new THREE.Vector2(1.2, 1.2),
       roughness: 0.8,
-      clearcoat: 0.1
+      clearcoat: 0.15,
+      clearcoatRoughness: 0.2
     });
 
     // ==========================================
@@ -177,7 +176,6 @@ export class Game {
     const tableGeo = new THREE.PlaneGeometry(50, 50);
     this.table = new THREE.Mesh(tableGeo, this.tableMat);
     this.table.rotation.x = -Math.PI / 2;
-    this.table.receiveShadow = true;
     this.scene.add(this.table);
 
     // Build drop zones
@@ -185,10 +183,22 @@ export class Game {
       const cat = this.CATEGORIES[key];
       const trayGroup = new THREE.Group();
 
+      // Soft shadow plane
+      const shadowGeo = new THREE.PlaneGeometry(5.2, 5.2);
+      const shadowMat = new THREE.MeshBasicMaterial({
+        map: this.softShadowTex,
+        transparent: true,
+        opacity: 0.65,
+        depthWrite: false,
+        blending: THREE.NormalBlending
+      });
+      const shadowMesh = new THREE.Mesh(shadowGeo, shadowMat);
+      shadowMesh.rotation.x = -Math.PI / 2;
+      shadowMesh.position.y = 0.005;
+      trayGroup.add(shadowMesh);
+
       const rimMat = new THREE.MeshPhysicalMaterial({ color: cat.rimColor, roughness: 0.4, clearcoat: 0.8 });
       const rim = new THREE.Mesh(new RoundedBoxGeometry(3.6, 0.4, 3.6, 6, 0.3), rimMat);
-      rim.receiveShadow = true;
-      rim.castShadow = true;
       trayGroup.add(rim);
 
       const innerGeo = new RoundedBoxGeometry(3.2, 0.42, 3.2, 6, 0.1);
@@ -197,7 +207,6 @@ export class Game {
       const innerMat = new THREE.MeshPhysicalMaterial({ map: hiddenTex, roughness: 0.8 });
       const inner = new THREE.Mesh(innerGeo, innerMat);
       inner.position.y = 0.02;
-      inner.receiveShadow = true;
       trayGroup.add(inner);
 
       const badgeGeo = new THREE.CylinderGeometry(0.8, 0.8, 0.25, 32);
@@ -209,7 +218,6 @@ export class Game {
       const badge = new THREE.Mesh(badgeGeo, badgeMat);
       badge.position.set(0, 0.25, -1.8);
       badge.rotation.y = Math.PI / 2;
-      badge.castShadow = true;
       trayGroup.add(badge);
 
       trayGroup.userData = {
@@ -255,8 +263,6 @@ export class Game {
 
       const tileMats = [baseMat, baseMat, topMat, baseMat, baseMat, baseMat];
       const tile = new THREE.Mesh(tileGeo, tileMats);
-      tile.castShadow = true;
-      tile.receiveShadow = true;
 
       // Spawn in a tighter cluster for portrait mode, wider for landscape
       const startX = (Math.random() - 0.5) * (initialIsLandscape ? 4.0 : 2.5);
@@ -268,6 +274,21 @@ export class Game {
       const hintLight = new THREE.PointLight(cat.baseColor, 0, 3);
       hintLight.position.set(0, 0.5, 0);
       tile.add(hintLight);
+
+      // Tile shadow plane
+      const tileShadowGeo = new THREE.PlaneGeometry(2.4, 2.4);
+      const tileShadowMat = new THREE.MeshBasicMaterial({
+        map: this.softShadowTex,
+        transparent: true,
+        opacity: 0.5,
+        depthWrite: false,
+        blending: THREE.NormalBlending
+      });
+      const tileShadow = new THREE.Mesh(tileShadowGeo, tileShadowMat);
+      tileShadow.rotation.x = -Math.PI / 2;
+      tileShadow.position.set(startX, 0.01, startZ);
+      this.scene.add(tileShadow);
+      this.tileShadows.push(tileShadow);
 
       tile.userData = {
         category: cat.id,
@@ -281,49 +302,15 @@ export class Game {
         hintLight: hintLight,
         topMat: topMat,
         velocity: new THREE.Vector3(0, 0, 0),
-        prevPosition: tile.position.clone()
+        prevPosition: tile.position.clone(),
+        shadowMesh: tileShadow
       };
       this.scene.add(tile);
       this.tiles.push(tile);
     });
 
-    // Create floating abstract hint pointer above the first tile
-    if (this.tiles.length > 0) {
-      const coneGeo = new THREE.ConeGeometry(0.18, 0.4, 4);
-      coneGeo.rotateX(Math.PI); // Point down
-      const coneMat = new THREE.MeshPhysicalMaterial({
-        color: 0x8fb866,
-        emissive: 0x8fb866,
-        emissiveIntensity: 1.5,
-        roughness: 0.2,
-        transparent: true,
-        opacity: 0.95
-      });
-      this.hintPointer = new THREE.Mesh(coneGeo, coneMat);
-      
-      const firstTile = this.tiles[0];
-      this.hintPointer.position.copy(firstTile.position);
-      this.hintPointer.position.y += 1.2;
-      this.scene.add(this.hintPointer);
-
-      // Bouncing and scaling hint animation
-      this.hintTween = gsap.to(this.hintPointer.position, {
-        y: '+=0.3',
-        duration: 0.6,
-        yoyo: true,
-        repeat: -1,
-        ease: 'power1.inOut'
-      });
-      this.hintScaleTween = gsap.to(this.hintPointer.scale, {
-        x: 1.15,
-        y: 1.15,
-        z: 1.15,
-        duration: 0.6,
-        yoyo: true,
-        repeat: -1,
-        ease: 'power1.inOut'
-      });
-    }
+    // Initialize HTML hand tutorial animation
+    this.initTutorialHandAnimation();
 
     this.dragPlane = new THREE.Mesh(
       new THREE.PlaneGeometry(100, 100),
@@ -340,13 +327,24 @@ export class Game {
     this.magRing.rotation.x = -Math.PI / 2;
     this.scene.add(this.magRing);
 
-    // Connection lines (TubeGeometry)
+    // Connection lines (Pre-allocated pulsing sphere groups)
+    const sphereGeo = new THREE.SphereGeometry(0.07, 8, 8);
     for (let i = 0; i < 4; i++) {
-      const lineGeo = new THREE.TubeGeometry(new THREE.LineCurve3(new THREE.Vector3(), new THREE.Vector3(0, 1, 0)), 20, 0.05, 6, false);
-      const lineMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc, transparent: true, opacity: 0 });
-      const line = new THREE.Mesh(lineGeo, lineMat);
-      this.scene.add(line);
-      this.lines.push(line);
+      const group = new THREE.Group();
+      const meshes: THREE.Mesh[] = [];
+      const lineMat = new THREE.MeshBasicMaterial({
+        color: 0x00ffcc,
+        transparent: true,
+        opacity: 0
+      });
+      for (let j = 0; j < 8; j++) {
+        const m = new THREE.Mesh(sphereGeo, lineMat);
+        group.add(m);
+        meshes.push(m);
+      }
+      group.userData = { meshes, material: lineMat };
+      this.scene.add(group);
+      this.lineGroups.push(group);
     }
 
     // Hide loader DOM element
@@ -370,6 +368,7 @@ export class Game {
     // 30-second idle fallback CTA
     setTimeout(() => {
       if (!this.gameCompleted) {
+        this.ctaVisible = true;
         const winTitle = document.querySelector('.win-title') as HTMLElement;
         if (winTitle) winTitle.innerText = 'Think you can sort faster?';
         const endCard = document.getElementById('end-card');
@@ -424,24 +423,24 @@ export class Game {
 
   private createTextTexture(text: string, textColor: string, maxAnisotropy: number): THREE.CanvasTexture {
     const canvas = document.createElement('canvas');
-    canvas.width = 256;
-    canvas.height = 256;
+    canvas.width = 512;
+    canvas.height = 512;
     const ctx = canvas.getContext('2d')!;
 
     // Creamy tile top matching target art
     ctx.fillStyle = '#fceabb';
-    ctx.fillRect(0, 0, 256, 256);
+    ctx.fillRect(0, 0, 512, 512);
 
     // Inner bevel highlight
     ctx.strokeStyle = '#e6c891';
-    ctx.lineWidth = 12;
-    ctx.strokeRect(6, 6, 244, 244);
+    ctx.lineWidth = 24;
+    ctx.strokeRect(12, 12, 488, 488);
 
-    ctx.font = 'bold 50px sans-serif';
+    ctx.font = 'bold 100px sans-serif';
     ctx.fillStyle = textColor;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(text, 128, 128);
+    ctx.fillText(text, 256, 256);
 
     const tex = new THREE.CanvasTexture(canvas);
     tex.anisotropy = maxAnisotropy;
@@ -500,6 +499,122 @@ export class Game {
     return tex;
   }
 
+  private createShadowTexture(): THREE.CanvasTexture {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d')!;
+
+    const grad = ctx.createRadialGradient(64, 64, 5, 64, 64, 60);
+    grad.addColorStop(0, 'rgba(0, 0, 0, 0.65)');
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 128, 128);
+
+    return new THREE.CanvasTexture(canvas);
+  }
+
+  private createWoodNormalTexture(maxAnisotropy: number): THREE.CanvasTexture {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 512;
+    const ctx = canvas.getContext('2d')!;
+
+    // Fill with neutral normal color
+    ctx.fillStyle = '#8080ff';
+    ctx.fillRect(0, 0, 512, 512);
+
+    // Plank gaps
+    for (let i = 0; i < 8; i++) {
+      const y = i * 64;
+      ctx.fillStyle = 'rgb(128, 90, 255)';
+      ctx.fillRect(0, y - 2, 512, 2);
+      ctx.fillStyle = 'rgb(128, 166, 255)';
+      ctx.fillRect(0, y, 512, 2);
+    }
+
+    // Add fine vertical/horizontal noise
+    const imgData = ctx.getImageData(0, 0, 512, 512);
+    const data = imgData.data;
+    for (let i = 0; i < data.length; i += 4) {
+      const noiseX = (Math.random() - 0.5) * 8;
+      const noiseY = (Math.random() - 0.5) * 4;
+      data[i] = Math.max(0, Math.min(255, data[i] + noiseX));
+      data[i+1] = Math.max(0, Math.min(255, data[i+1] + noiseY));
+    }
+    ctx.putImageData(imgData, 0, 0);
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(2, 2);
+    tex.anisotropy = maxAnisotropy;
+    return tex;
+  }
+
+  private initTutorialHandAnimation(): void {
+    const handEl = document.getElementById('tutorial-hand');
+    if (!handEl) return;
+
+    const runLoop = () => {
+      if (this.tutorialTimeoutId) {
+        clearTimeout(this.tutorialTimeoutId);
+        this.tutorialTimeoutId = null;
+      }
+      if (this.tutorialTimeline) {
+        this.tutorialTimeline.kill();
+        this.tutorialTimeline = null;
+      }
+
+      if (this.gameCompleted || this.ctaVisible || this.draggedTile) {
+        handEl.style.opacity = '0';
+        return;
+      }
+
+      // Check if sport is already snapped
+      const firstTile = this.tiles.find(t => t.userData.category === 'SPORT' && !t.userData.isSnapped);
+      const targetZone = this.dropZones.find(z => z.userData.category === 'SPORT');
+
+      if (!firstTile || !targetZone) {
+        handEl.style.opacity = '0';
+        return;
+      }
+
+      // Project positions to 2D
+      const posStart = this.getScreenPosition(firstTile.position);
+      const posEnd = this.getScreenPosition(targetZone.position);
+
+      gsap.killTweensOf(handEl);
+      gsap.set(handEl, { x: posStart.x, y: posStart.y, opacity: 0, scale: 1.0 });
+
+      this.tutorialTimeline = gsap.timeline({
+        onComplete: () => {
+          this.tutorialTimeoutId = setTimeout(runLoop, 800);
+        }
+      });
+      this.tutorialTimeline
+        .to(handEl, { opacity: 1, duration: 0.3 })
+        .to(handEl, { scale: 0.8, duration: 0.2 })
+        .to(handEl, { x: posEnd.x, y: posEnd.y, duration: 1.6, ease: 'power2.inOut' })
+        .to(handEl, { scale: 1.0, duration: 0.2 })
+        .to(handEl, { opacity: 0, duration: 0.3 });
+    };
+
+    runLoop();
+    
+    // Wire custom callback to refresh positions
+    (this as any).tutorialLoop = runLoop;
+  }
+
+  private getScreenPosition(pos3d: THREE.Vector3): THREE.Vector2 {
+    const tempV = pos3d.clone();
+    tempV.project(this.camera);
+    return new THREE.Vector2(
+      (tempV.x * 0.5 + 0.5) * window.innerWidth,
+      (tempV.y * -0.5 + 0.5) * window.innerHeight
+    );
+  }
+
   // ==========================================
   // INPUT INTERACTION HANDLERS
   // ==========================================
@@ -513,30 +628,23 @@ export class Game {
   }
 
   private onPointerDown = (e: PointerEvent): void => {
-    if (this.completedGroups >= 2) return;
+    if (this.completedGroups >= 2 || this.ctaVisible) return;
 
     this.sounds.playGrabSFX();
 
-    // Dismiss abstract hint pointer on first interaction
-    if (this.hintPointer) {
-      if (this.hintTween) this.hintTween.kill();
-      if (this.hintScaleTween) this.hintScaleTween.kill();
-      
-      const hintPtr = this.hintPointer;
-      this.hintPointer = null; // Prevent multi-triggers
-      gsap.to((hintPtr.material as THREE.Material), {
-        opacity: 0,
-        duration: 0.3,
-        onComplete: () => {
-          this.scene.remove(hintPtr);
-          hintPtr.geometry.dispose();
-          if (Array.isArray(hintPtr.material)) {
-            hintPtr.material.forEach(m => m.dispose());
-          } else {
-            hintPtr.material.dispose();
-          }
-        }
-      });
+    // Dismiss HTML hand tutorial animation on interaction
+    const handEl = document.getElementById('tutorial-hand');
+    if (handEl) {
+      gsap.killTweensOf(handEl);
+      handEl.style.opacity = '0';
+    }
+    if (this.tutorialTimeline) {
+      this.tutorialTimeline.kill();
+      this.tutorialTimeline = null;
+    }
+    if (this.tutorialTimeoutId) {
+      clearTimeout(this.tutorialTimeoutId);
+      this.tutorialTimeoutId = null;
     }
 
     const intersects = this.getIntersects(e, this.tiles);
@@ -648,6 +756,11 @@ export class Game {
         navigator.vibrate([30, 50, 30]);
       }
 
+      // Camera shake on snap success
+      const shakeTl = gsap.timeline();
+      shakeTl.to(this.cameraOffset, { x: 0.15, y: -0.1, z: 0.1, duration: 0.04, yoyo: true, repeat: 5 })
+             .to(this.cameraOffset, { x: 0, y: 0, z: 0, duration: 0.1 });
+
       // Reveal category
       const innerMesh = snappedToZone.userData.innerMesh as THREE.Mesh;
       const innerMat = innerMesh.material as THREE.MeshPhysicalMaterial;
@@ -728,6 +841,7 @@ export class Game {
   private checkWin(): void {
     if (this.completedGroups >= 2) {
       this.gameCompleted = true;
+      this.ctaVisible = true;
       const instructions = document.getElementById('instructions');
       if (instructions) instructions.style.display = 'none';
       setTimeout(() => {
@@ -755,12 +869,6 @@ export class Game {
 
     const time = this.clock.getElapsedTime();
 
-    // Track hintPointer position above first tile
-    if (this.hintPointer && this.tiles.length > 0) {
-      this.hintPointer.position.x = this.tiles[0].position.x;
-      this.hintPointer.position.z = this.tiles[0].position.z;
-    }
-
     // Camera parallax + ambient wave movement (centered at 0, 0, 0.5)
     if (!this.draggedTile && this.completedGroups < 2) {
       const targetX = this.mouse.x * 2;
@@ -775,17 +883,19 @@ export class Game {
         this.camera.position.z += Math.cos(time * 0.3) * 0.005;
       }
     }
+    // Add camera shake offset
+    this.camera.position.add(this.cameraOffset);
     this.camera.lookAt(0, 0, 0.5);
 
     if (!this.isMobile) {
       this.noisePass.material.uniforms.time.value = time;
     }
 
-    // Reset lines
+    // Reset line groups
     let lineIdx = 0;
-    this.lines.forEach((l) => {
-      const lMat = l.material as THREE.MeshBasicMaterial;
-      lMat.opacity = 0;
+    this.lineGroups.forEach((g) => {
+      const gMat = g.userData.material as THREE.MeshBasicMaterial;
+      gMat.opacity = 0;
     });
 
     if (this.draggedTile) {
@@ -804,6 +914,16 @@ export class Game {
       if (this.draggedTile) {
         if (tile === this.draggedTile) {
           tile.position.y += (1.5 - tile.position.y) * 0.1; // lift drag
+          
+          // Update dragged tile shadow
+          if (tile.userData.shadowMesh) {
+            tile.userData.shadowMesh.position.x = tile.position.x;
+            tile.userData.shadowMesh.position.z = tile.position.z;
+            const lift = Math.max(0, tile.position.y - 1.0);
+            tile.userData.shadowMesh.material.opacity = Math.max(0.08, 0.5 - lift * 0.3);
+            const s = 1.0 + lift * 0.25;
+            tile.userData.shadowMesh.scale.set(s, s, s);
+          }
           return;
         }
 
@@ -818,23 +938,34 @@ export class Game {
             tile.userData.velocity.z += forceZ;
             tile.userData.isMagnetized = true;
 
-            // Connection arcs
-            if (lineIdx < this.lines.length) {
-              const curve = new THREE.QuadraticBezierCurve3(
-                tile.position,
-                new THREE.Vector3(
-                  (tile.position.x + this.draggedTile.position.x) / 2,
-                  Math.max(tile.position.y, this.draggedTile.position.y) + 2.0,
-                  (tile.position.z + this.draggedTile.position.z) / 2
-                ),
-                this.draggedTile.position
-              );
-              this.lines[lineIdx].geometry.dispose();
-              this.lines[lineIdx].geometry = new THREE.TubeGeometry(curve, 20, 0.04, 6, false);
+            // Connection arcs (Pulsing sphere groups)
+            if (lineIdx < this.lineGroups.length) {
+              const group = this.lineGroups[lineIdx];
+              const meshes = group.userData.meshes as THREE.Mesh[];
+              const lineMat = group.userData.material as THREE.MeshBasicMaterial;
               
-              const lineMat = this.lines[lineIdx].material as THREE.MeshBasicMaterial;
-              lineMat.color.setHex(0x00ffcc);
               lineMat.opacity = (1 - dist / 4.5) * 0.9;
+              
+              const p0 = tile.position;
+              const p1 = new THREE.Vector3(
+                (tile.position.x + this.draggedTile.position.x) / 2,
+                Math.max(tile.position.y, this.draggedTile.position.y) + 1.2,
+                (tile.position.z + this.draggedTile.position.z) / 2
+              );
+              const p2 = this.draggedTile.position;
+
+              for (let k = 0; k < 8; k++) {
+                const tVal = k / 7;
+                const mt = 1 - tVal;
+                const x = mt * mt * p0.x + 2 * mt * tVal * p1.x + tVal * tVal * p2.x;
+                const y = mt * mt * p0.y + 2 * mt * tVal * p1.y + tVal * tVal * p2.y;
+                const z = mt * mt * p0.z + 2 * mt * tVal * p1.z + tVal * tVal * p2.z;
+                meshes[k].position.set(x, y, z);
+                
+                // Pulsing animation
+                const pulse = 1.0 + 0.35 * Math.sin(time * 12.0 + k * 0.7);
+                meshes[k].scale.set(pulse, pulse, pulse);
+              }
               lineIdx++;
             }
           } else {
@@ -872,6 +1003,16 @@ export class Game {
       tile.position.z += tile.userData.velocity.z;
       tile.position.y += (tile.userData.floatTarget.y - tile.position.y) * 0.1;
       
+      // Update dynamic shadow position and lifting effects
+      if (tile.userData.shadowMesh) {
+        tile.userData.shadowMesh.position.x = tile.position.x;
+        tile.userData.shadowMesh.position.z = tile.position.z;
+        const lift = Math.max(0, tile.position.y - 1.0);
+        tile.userData.shadowMesh.material.opacity = Math.max(0.08, 0.5 - lift * 0.3);
+        const s = 1.0 + lift * 0.25;
+        tile.userData.shadowMesh.scale.set(s, s, s);
+      }
+      
       // Damp velocity
       tile.userData.velocity.multiplyScalar(0.85);
 
@@ -899,6 +1040,13 @@ export class Game {
       for (let j = i + 1; j < this.tiles.length; j++) {
         const tileB = this.tiles[j];
         if (tileB.userData.isSnapped) continue;
+
+        // Skip collisions between matching categories if they are magnetized or dragged
+        if (tileA.userData.category === tileB.userData.category && 
+            (tileA.userData.isDragging || tileA.userData.isMagnetized) && 
+            (tileB.userData.isDragging || tileB.userData.isMagnetized)) {
+          continue;
+        }
 
         const dx = tileB.position.x - tileA.position.x;
         const dz = tileB.position.z - tileA.position.z;
@@ -1072,6 +1220,11 @@ export class Game {
     this.renderer.setSize(width, height);
     this.renderer.setPixelRatio(this.isMobile ? 1.0 : Math.min(window.devicePixelRatio, 1.5));
     this.composer.setSize(width, height);
+
+    // Re-run tutorial hand loop to adjust to new positions
+    if ((this as any).tutorialLoop) {
+      (this as any).tutorialLoop();
+    }
   }
 
   public pause(): void {
