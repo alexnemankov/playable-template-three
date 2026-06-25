@@ -54,9 +54,15 @@ export class SoundManager {
     }
   }
 
+  private lastCollisionTime: number = 0;
+
   // Short click/wood tap sound when tiles collide
   public playCollisionSFX(force: number) {
     if (!this.ctx || this.isMuted) return;
+    const now = this.ctx.currentTime;
+    if (now - this.lastCollisionTime < 0.1) return;
+    this.lastCollisionTime = now;
+
     try {
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
