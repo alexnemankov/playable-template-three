@@ -195,6 +195,7 @@ export class Game {
       });
       const badge = new THREE.Mesh(badgeGeo, badgeMat);
       badge.position.set(0, 0.25, -1.8);
+      badge.rotation.y = Math.PI / 2;
       badge.castShadow = true;
       trayGroup.add(badge);
 
