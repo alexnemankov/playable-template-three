@@ -1032,86 +1032,96 @@ export class Game {
     // ==========================================
     // 2D CIRCLE-CIRCLE COLLISION REPULSION
     // ==========================================
-    const radius = 1.7; // Sum of bounding radii
-    for (let i = 0; i < this.tiles.length; i++) {
-      const tileA = this.tiles[i];
-      if (tileA.userData.isSnapped) continue;
+    const radius = 2.05; // Sum of bounding radii (enlarged to match 1.6x1.6 rotated tiles)
+    // Run collision solver twice for stable stack resolution
+    for (let iter = 0; iter < 2; iter++) {
+      for (let i = 0; i < this.tiles.length; i++) {
+        const tileA = this.tiles[i];
+        if (tileA.userData.isSnapped) continue;
 
-      for (let j = i + 1; j < this.tiles.length; j++) {
-        const tileB = this.tiles[j];
-        if (tileB.userData.isSnapped) continue;
+        for (let j = i + 1; j < this.tiles.length; j++) {
+          const tileB = this.tiles[j];
+          if (tileB.userData.isSnapped) continue;
 
-        // Skip collisions between matching categories if they are magnetized or dragged
-        if (tileA.userData.category === tileB.userData.category && 
-            (tileA.userData.isDragging || tileA.userData.isMagnetized) && 
-            (tileB.userData.isDragging || tileB.userData.isMagnetized)) {
-          continue;
-        }
-
-        const dx = tileB.position.x - tileA.position.x;
-        const dz = tileB.position.z - tileA.position.z;
-        const dist = Math.sqrt(dx * dx + dz * dz);
-
-        if (dist < radius) {
-          const overlap = radius - dist;
-          let nx = dx;
-          let nz = dz;
-          if (dist === 0) {
-            nx = Math.random() - 0.5;
-            nz = Math.random() - 0.5;
-            const len = Math.sqrt(nx * nx + nz * nz);
-            nx /= len;
-            nz /= len;
-          } else {
-            nx /= dist;
-            nz /= dist;
+          // Skip collision ONLY between the dragged tile and its own magnetized category followers
+          if ((tileA.userData.isDragging && tileB.userData.category === tileA.userData.category && tileB.userData.isMagnetized) ||
+              (tileB.userData.isDragging && tileA.userData.category === tileB.userData.category && tileA.userData.isMagnetized)) {
+            continue;
           }
 
-          if (tileA.userData.isDragging) {
-            // Dragged tile pushes other tile out
-            tileB.position.x += nx * overlap;
-            tileB.position.z += nz * overlap;
-            
-            // Transfer drag impulse
-            tileB.userData.velocity.x += nx * overlap * 0.5 + tileA.userData.velocity.x * 0.4;
-            tileB.userData.velocity.z += nz * overlap * 0.5 + tileA.userData.velocity.z * 0.4;
-          } else if (tileB.userData.isDragging) {
-            // Dragged tile pushes other tile out
-            tileA.position.x -= nx * overlap;
-            tileA.position.z -= nz * overlap;
+          const dx = tileB.position.x - tileA.position.x;
+          const dz = tileB.position.z - tileA.position.z;
+          const dist = Math.sqrt(dx * dx + dz * dz);
 
-            // Transfer drag impulse
-            tileA.userData.velocity.x -= nx * overlap * 0.5 - tileB.userData.velocity.x * 0.4;
-            tileA.userData.velocity.z -= nz * overlap * 0.5 - tileB.userData.velocity.z * 0.4;
-          } else {
-            // Both are floating, push both apart equally
-            const pushX = nx * overlap * 0.5;
-            const pushZ = nz * overlap * 0.5;
-            tileA.position.x -= pushX;
-            tileA.position.z -= pushZ;
-            tileB.position.x += pushX;
-            tileB.position.z += pushZ;
+          if (dist < radius) {
+            const overlap = radius - dist;
+            let nx = dx;
+            let nz = dz;
+            if (dist === 0) {
+              nx = Math.random() - 0.5;
+              nz = Math.random() - 0.5;
+              const len = Math.sqrt(nx * nx + nz * nz);
+              nx /= len;
+              nz /= len;
+            } else {
+              nx /= dist;
+              nz /= dist;
+            }
 
-            // Add repulsion velocities
-            const bounceForce = overlap * 0.05;
-            tileA.userData.velocity.x -= nx * bounceForce;
-            tileA.userData.velocity.z -= nz * bounceForce;
-            tileB.userData.velocity.x += nx * bounceForce;
-            tileB.userData.velocity.z += nz * bounceForce;
-          }
+            if (tileA.userData.isDragging) {
+              // Dragged tile pushes other tile out
+              tileB.position.x += nx * overlap;
+              tileB.position.z += nz * overlap;
+              
+              // Transfer drag impulse
+              tileB.userData.velocity.x += nx * overlap * 0.6 + tileA.userData.velocity.x * 0.4;
+              tileB.userData.velocity.z += nz * overlap * 0.6 + tileA.userData.velocity.z * 0.4;
+            } else if (tileB.userData.isDragging) {
+              // Dragged tile pushes other tile out
+              tileA.position.x -= nx * overlap;
+              tileA.position.z -= nz * overlap;
 
-          // Play collision tick sound
-          this.sounds.playCollisionSFX(overlap);
+              // Transfer drag impulse
+              tileA.userData.velocity.x -= nx * overlap * 0.6 - tileB.userData.velocity.x * 0.4;
+              tileA.userData.velocity.z -= nz * overlap * 0.6 - tileB.userData.velocity.z * 0.4;
+            } else {
+              // Both are floating, push both apart equally
+              const pushX = nx * overlap * 0.5;
+              const pushZ = nz * overlap * 0.5;
+              tileA.position.x -= pushX;
+              tileA.position.z -= pushZ;
+              tileB.position.x += pushX;
+              tileB.position.z += pushZ;
 
-          // Elastic bounciness scale squash (GSAP)
-          gsap.killTweensOf(tileA.scale);
-          gsap.killTweensOf(tileB.scale);
-          gsap.to(tileA.scale, { x: 1.15, y: 0.72, z: 1.15, duration: 0.08, yoyo: true, repeat: 1 });
-          gsap.to(tileB.scale, { x: 1.15, y: 0.72, z: 1.15, duration: 0.08, yoyo: true, repeat: 1 });
+              // Add repulsion velocities (slightly stronger for better sorting separation)
+              const bounceForce = overlap * 0.12;
+              tileA.userData.velocity.x -= nx * bounceForce;
+              tileA.userData.velocity.z -= nz * bounceForce;
+              tileB.userData.velocity.x += nx * bounceForce;
+              tileB.userData.velocity.z += nz * bounceForce;
+            }
 
-          // Haptics vibration tap on mobile
-          if (this.isMobile && navigator.vibrate) {
-            navigator.vibrate(12);
+            // Calculate relative velocity along the collision normal
+            const rvx = tileB.userData.velocity.x - tileA.userData.velocity.x;
+            const rvz = tileB.userData.velocity.z - tileA.userData.velocity.z;
+            const velAlongNormal = rvx * nx + rvz * nz;
+
+            // Only trigger collision sound/animation on true impact (moving towards each other)
+            if (velAlongNormal < -0.03) {
+              // Play collision tick sound
+              this.sounds.playCollisionSFX(overlap);
+
+              // Elastic bounciness scale squash (GSAP)
+              gsap.killTweensOf(tileA.scale);
+              gsap.killTweensOf(tileB.scale);
+              gsap.to(tileA.scale, { x: 1.15, y: 0.72, z: 1.15, duration: 0.08, yoyo: true, repeat: 1 });
+              gsap.to(tileB.scale, { x: 1.15, y: 0.72, z: 1.15, duration: 0.08, yoyo: true, repeat: 1 });
+
+              // Haptics vibration tap on mobile
+              if (this.isMobile && navigator.vibrate) {
+                navigator.vibrate(12);
+              }
+            }
           }
         }
       }

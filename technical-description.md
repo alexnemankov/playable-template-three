@@ -84,9 +84,10 @@ The project implements custom mechanics within the requestAnimationFrame loop:
     *   Tiles feature a dynamic shadow plane. During drags, as the tile position lifts, the shadow mesh automatically shifts, scales larger, and fades its opacity in [animate](file:///f:/Front/31-word-ad-test/src/Game.ts#L1006).
 *   **Damped Springs (Magnetism)**: Magnetism calculates distance between matching categories. If `distance < 4.5`, an attraction force vector pulls the tiles toward the dragged tile's relative cluster offsets. Damping is applied at `velocity * 0.85`.
 *   **Circle-Circle Collision Physics**:
-    *   Tiles repel each other on the XZ plane to prevent overlapping.
-    *   To prevent infinite high-frequency collision jitter and bouncing sound loops, self-collisions between matching category tiles are bypassed once they are magnetized or dragged.
-    *   On valid collisions, a wood-tap sound synthesizes, a mobile haptic vibration fires, and GSAP scale squashes the tiles (`x: 1.15, y: 0.72, z: 1.15`) for tactile elasticity.
+    *   **Collision Boundary Radius**: Set to `2.05` to match the bounding diagonal profile of the rotated `1.6 x 1.6` square tiles. This prevents corners from clipping and overlapping during rotations.
+    *   **Double Solver Iterations**: Runs the collision loop twice per frame to fully resolve overlapping configurations, preventing tiles from stacking or passing through each other.
+    *   **Selective Group Collision Bypass**: Bypasses collisions **only** between the dragged tile and its direct magnetized category followers, allowing followers to form their cluster shapes without pushing against the center tile, while still repelling each other and other categories.
+    *   **Tactile Impact Filter**: Calculates relative velocity along the collision normal. Plays collision tick audio and triggers GSAP elastic squashing (`x: 1.15, y: 0.72, z: 1.15`) **only** when tiles are moving towards each other at speed, keeping sliding/resting contacts silent and smooth.
 *   **Dynamic Connection Lines**:
     *   Formed using 8 pre-allocated spheres placed along a `THREE.QuadraticBezierCurve3`. It samples points at runtime, scaling them dynamically with a sine wave over time to create a pulsing energy flow without GC allocations.
 *   **Camera Parallax & Offset Shake**:
