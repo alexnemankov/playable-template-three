@@ -2,6 +2,9 @@
 
 An engaging, lightweight, and performance-optimized 3D playable ad for **Word Association Tiles**, built using a custom interaction mechanic designed to captivate mobile gamers in the first few seconds of engagement.
 
+*   **Live Playable Demo**: [Playable Template V1 Preview](https://playable-template-three.vercel.app/Playable_Template_v1_20260625_en_Preview.html)
+*   **GitHub Repository**: [alexnemankov/playable-template-three](https://github.com/alexnemankov/playable-template-three)
+
 ---
 
 ## 1. Game Design & Custom Mechanics
