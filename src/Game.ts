@@ -246,7 +246,7 @@ export class Game {
     const tileGeo = new RoundedBoxGeometry(1.6, 0.6, 1.6, 6, 0.15);
     const initialIsLandscape = width > height;
 
-    allWords.forEach((item) => {
+    allWords.forEach((item, index) => {
       const cat = this.CATEGORIES[item.c];
       const topMat = new THREE.MeshPhysicalMaterial({
         map: this.createTextTexture(item.w, cat.textColor, maxAnisotropy),
@@ -264,11 +264,22 @@ export class Game {
       const tileMats = [baseMat, baseMat, topMat, baseMat, baseMat, baseMat];
       const tile = new THREE.Mesh(tileGeo, tileMats);
 
-      // Spawn in a tighter cluster for portrait mode, wider for landscape
-      const startX = (Math.random() - 0.5) * (initialIsLandscape ? 4.0 : 2.5);
-      const startZ = (Math.random() - 0.5) * 2.0 - 0.8;
-      const startY = 1.0 + Math.random() * 0.5;
+      // Clean layout: messy grid
+      const col = index % 4;
+      const row = Math.floor(index / 4);
+      const startX = (col - 1.5) * (initialIsLandscape ? 2.2 : 1.8) + (Math.random() - 0.5) * 0.4;
+      const startZ = (row - 0.5) * 1.8 + (Math.random() - 0.5) * 0.4;
+      const startY = 8.0 + Math.random() * 2.0; // High up
       tile.position.set(startX, startY, startZ);
+
+      // Stagger entrance
+      gsap.to(tile.position, {
+        y: 1.0 + Math.random() * 0.5,
+        delay: index * 0.1, // Stagger
+        duration: 0.6,
+        ease: 'bounce.out'
+      });
+
       tile.rotation.y = (Math.random() - 0.5) * 0.5;
 
       const hintLight = new THREE.PointLight(cat.baseColor, 0, 3);
@@ -295,7 +306,7 @@ export class Game {
         isSnapped: false,
         isDragging: false,
         isMagnetized: false,
-        baseY: startY,
+        baseY: 1.0 + Math.random() * 0.5,
         randomOff: Math.random() * Math.PI * 2,
         clusterOffset: clusterOffsets[catCounters[item.c]++],
         floatTarget: tile.position.clone(),
@@ -381,6 +392,14 @@ export class Game {
 
     // Start render loop
     this.animate();
+
+    // Delay instructions fade in
+    setTimeout(() => {
+      const instructions = document.getElementById('instructions');
+      if (instructions) {
+        gsap.to(instructions, { opacity: 1, duration: 1.0 });
+      }
+    }, 1500);
 
     // Start playable SDK
     sdk.start();
@@ -771,7 +790,47 @@ export class Game {
       // Burst particles
       const categoryObj = Object.values(this.CATEGORIES).find(c => c.id === snappedToZone!.userData.category);
       if (categoryObj) {
-        this.burstParticles(basePos, categoryObj.rimColor);
+        this.burstParticles(basePos, categoryObj);
+      }
+
+      // Material Surprise: 2D Hand-drawn exclamation/checkmark
+      const fxLayer = document.getElementById('fx-layer');
+      if (fxLayer) {
+        const screenPos = this.getScreenPosition(basePos);
+        const icon = document.createElement('div');
+        icon.style.position = 'absolute';
+        icon.style.left = `${screenPos.x - 50}px`;
+        icon.style.top = `${screenPos.y - 80}px`; 
+        
+        const pathColor = categoryObj?.baseColor || '#fff';
+        icon.innerHTML = `<svg width="100" height="100" viewBox="0 0 100 100">
+          <path id="checkPath" d="M 20 60 Q 35 80 40 85 Q 60 40 90 20" fill="none" stroke="${pathColor}" stroke-width="12" stroke-linecap="round" style="filter: drop-shadow(0px 4px 0px rgba(0,0,0,0.3));" />
+        </svg>`;
+        fxLayer.appendChild(icon);
+
+        const pathEl = icon.querySelector('#checkPath') as SVGPathElement;
+        const length = pathEl.getTotalLength ? pathEl.getTotalLength() : 200;
+        pathEl.style.strokeDasharray = `${length}`;
+        pathEl.style.strokeDashoffset = `${length}`;
+        
+        gsap.to(pathEl.style, {
+          strokeDashoffset: 0,
+          duration: 0.3,
+          ease: 'power2.out'
+        });
+        
+        gsap.to(icon, {
+          y: -30,
+          duration: 0.8,
+          ease: 'power1.out'
+        });
+        
+        gsap.to(icon, {
+          opacity: 0,
+          duration: 0.3,
+          delay: 0.5,
+          onComplete: () => icon.remove()
+        });
       }
 
       let delay = 0;
@@ -820,19 +879,30 @@ export class Game {
   // ==========================================
   // PARTICLE BURST
   // ==========================================
-  private burstParticles(pos: THREE.Vector3, colorStr: string): void {
+  private burstParticles(pos: THREE.Vector3, categoryObj: Category): void {
     const geo = new THREE.BufferGeometry();
-    const count = 30;
+    const count = categoryObj.id === 'ART' ? 40 : 30;
     const positions = new Float32Array(count * 3);
     const velocities: THREE.Vector3[] = [];
     for (let i = 0; i < count; i++) {
       positions[i * 3] = pos.x;
       positions[i * 3 + 1] = pos.y + 0.5;
       positions[i * 3 + 2] = pos.z;
-      velocities.push(new THREE.Vector3((Math.random() - 0.5) * 0.2, Math.random() * 0.3, (Math.random() - 0.5) * 0.2));
+      
+      if (categoryObj.id === 'ART') {
+        // Paint splatters (up and out, dropping down)
+        velocities.push(new THREE.Vector3((Math.random() - 0.5) * 0.3, Math.random() * 0.4, (Math.random() - 0.5) * 0.3));
+      } else {
+        // Dust kicks / whistle lines (faster, outward)
+        velocities.push(new THREE.Vector3((Math.random() - 0.5) * 0.6, (Math.random() - 0.2) * 0.3, (Math.random() - 0.5) * 0.6));
+      }
     }
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    const mat = new THREE.PointsMaterial({ color: colorStr, size: 0.2, transparent: true, opacity: 1 });
+    
+    const colorStr = categoryObj.id === 'ART' ? categoryObj.baseColor : '#dcdcdc'; // Paint vs Dust
+    const size = categoryObj.id === 'ART' ? 0.3 : 0.15;
+    
+    const mat = new THREE.PointsMaterial({ color: colorStr, size: size, transparent: true, opacity: 1 });
     const points = new THREE.Points(geo, mat);
     this.scene.add(points);
     this.particleSystems.push({ mesh: points, vels: velocities, life: 1.0 });
@@ -945,6 +1015,10 @@ export class Game {
               const lineMat = group.userData.material as THREE.MeshBasicMaterial;
               
               lineMat.opacity = (1 - dist / 4.5) * 0.9;
+              const categoryObj = Object.values(this.CATEGORIES).find(c => c.id === this.draggedTile!.userData.category);
+              if (categoryObj) {
+                lineMat.color.set(categoryObj.baseColor);
+              }
               
               const p0 = tile.position;
               const p1 = new THREE.Vector3(

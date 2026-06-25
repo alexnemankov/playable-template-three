@@ -60,13 +60,18 @@ The interaction design focuses on satisfying physical feedback and immediate com
     *   On load, it projects 3D coords of the first Sport tile and its target tray, performing a looping drag gesture animated via GSAP.
     *   The loop clears its timeout tracker `tutorialTimeoutId` and terminates active timelines on updates to prevent flickering during window resizes.
     *   Any pointer interaction immediately kills the timeline, fades the hand, and halts further cycles.
+    *   **Ambient Introduction Beat**: The instructional header text (`#instructions`) is initially hidden (opacity 0) and fades in after a 1.5s delay via GSAP, giving the player an ambient beat to take in the scene before presenting interaction demands.
 *   **Core Gameplay Loop**:
     1.  The user drags a 3D tile. The `ctaVisible` flag blocks any drag interactions when the CTA overlay is displayed.
     2.  If the dragged tile is moved near matching category tiles, they get pulled together via a "magnetic" spring force.
     3.  Glowing pulsing connection lines (groups of pre-allocated spheres sampled along a Bezier path) link them.
     4.  Dragging the grouped tiles over the matching drop zone and releasing snaps them.
 *   **Visual & Audio Feedback**:
-    *   **Success Snapping**: Custom arpeggio synthesizers play, haptics trigger on mobile, the drop tray flips from "?" to show the category name, a 30-particle colorful burst radiates, and a camera offset shake triggers for impact.
+    *   **Success Snapping**: Custom arpeggio synthesizers play, haptics trigger on mobile, the drop tray flips from "?" to show the category name, and a camera offset shake triggers for impact.
+    *   **Thematic "Juice" Particles**: Instead of generic particle sparks, snapping triggers category-specific thematic particle bursts:
+        *   *ART category*: 40 larger, slow-falling "paint splatters" (`size: 0.3`) in the category's signature color.
+        *   *SPORT category*: 30 smaller, fast-outward "dust kicks" (`size: 0.15`) in light gray.
+    *   **Material Surprise SVG Overlay**: To break the 3D depth illusion, a 2D DOM-based `#fx-layer` appends a hand-drawn SVG checkmark path at the zone's screen-projected coordinates. The path's `stroke-dashoffset` is animated using GSAP to draw the checkmark in 0.3s as it floats upward and fades out.
     *   **Invalid Actions**: Dragging a tile to the wrong zone triggers a rapid rotational shake (GSAP), lights the tile red, and fades the red color out.
 *   **End Card & CTA**:
     *   Visible upon solving both categories, displaying a clean overlay with a 5-star rating, a "Brilliant!" win message, and a prominent "Play Free Now" install button.
@@ -78,6 +83,9 @@ The interaction design focuses on satisfying physical feedback and immediate com
 
 The project implements custom mechanics within the requestAnimationFrame loop:
 
+*   **Staggered Layout Spawn**:
+    *   Tiles are spawned high up (`y = 8.0` to `10.0`) and drop into a clean, slightly randomized 4x2 grid to preserve at least 40% negative space.
+    *   Entrance animations are staggered by 100ms per tile (`delay: index * 0.1`) with a GSAP `bounce.out` ease to make the initial state feel inviting rather than chaotic.
 *   **Interaction Raycasting**: Traces screen coordinates to the 3D plane using `THREE.Raycaster`. Dragging operates along a virtual horizontal constraint plane positioned at `y = 1.5` (lifting tiles slightly when held).
 *   **Procedural Soft Shadows**:
     *   Trays feature a static, blurred soft shadow plane (`THREE.NormalBlending`).
@@ -88,8 +96,9 @@ The project implements custom mechanics within the requestAnimationFrame loop:
     *   **Double Solver Iterations**: Runs the collision loop twice per frame to fully resolve overlapping configurations, preventing tiles from stacking or passing through each other.
     *   **Selective Group Collision Bypass**: Bypasses collisions **only** between the dragged tile and its direct magnetized category followers, allowing followers to form their cluster shapes without pushing against the center tile, while still repelling each other and other categories.
     *   **Tactile Impact Filter**: Calculates relative velocity along the collision normal. Plays collision tick audio and triggers GSAP elastic squashing (`x: 1.15, y: 0.72, z: 1.15`) **only** when tiles are moving towards each other at speed, keeping sliding/resting contacts silent and smooth.
-*   **Dynamic Connection Lines**:
+*   **Dynamic, Thematic Connection Lines**:
     *   Formed using 8 pre-allocated spheres placed along a `THREE.QuadraticBezierCurve3`. It samples points at runtime, scaling them dynamically with a sine wave over time to create a pulsing energy flow without GC allocations.
+    *   Instead of static cyan, the spheres dynamically inherit the category's base color of the active tile, reinforcing thematic coherence.
 *   **Camera Parallax & Offset Shake**:
     *   Parallax: Mouse movements translate into smooth camera shifts.
     *   Offset Shake: Snap success triggers a quick, decaying shake tween on the `cameraOffset` vector, which is added to the parallax position.

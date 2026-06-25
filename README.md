@@ -1,58 +1,85 @@
-# Playable Template with Three.js
+# Word Association Tiles — 3D Playable Ad
 
-A starter template for creating playable ads using Three.js with TypeScript support. This template combines:
+An engaging, lightweight, and performance-optimized 3D playable ad for **Word Association Tiles**, built using a custom interaction mechanic designed to captivate mobile gamers in the first few seconds of engagement.
 
-- [Three.js](https://threejs.org/) - 3D graphics library for creating immersive WebGL experiences
-- [@smoud/playable-sdk](https://github.com/smoudjs/playable-sdk#readme) - SDK for creating playable ads with standardized events and methods
-- [@smoud/playable-scripts](https://github.com/smoudjs/playable-scripts#readme) - Build and development tools optimized for playable ads
+---
 
-## Demo
+## 1. Game Design & Custom Mechanics
 
-Try out this template:
-- [View on CodePen](https://codepen.io/peter-hutsul/pen/VYwygKp)
+Rather than replicating a standard grid or card match, this playable implements a tactile, physics-based **"Magnetized Cluster Sorting"** mechanic.
 
-## Features
+*   **Interactive Magnetism**: When the player drags a word tile, matching tiles in the same category are pulled toward it by a damped spring force, forming a dynamic physical cluster. A pulsing connection arc links them to indicate semantic associations.
+*   **Ambient Introduction Beat**: The bold tutorial instruction text is hidden initially and fades in after a `1.5s` delay, letting the player absorb the premium wooden board layout and ambient bounce-in animations first without immediate demands.
+*   **Staggered Entrance Layout**: Instead of spawning all 8 tiles in a messy pile, the tiles drop from above one-by-one (staggered by `100ms` using GSAP `bounce.out`), settling into a clean, slightly randomized layout that preserves at least 40% negative space to make the initial board inviting.
+*   **Thematic "Juice" Particles**: In place of generic spark effects, category-specific visual feedback is triggered upon successful snaps:
+    *   **ART category**: Triggers 40 larger, slower-falling "paint splatters" in the category's signature red/orange/green color.
+    *   **SPORT category**: Triggers 30 smaller, fast-outward "dust kicks" in light gray.
+*   **Material Surprise**: Snapping a category triggers a 2D DOM overlay (`#fx-layer`) that draws a hand-drawn SVG checkmark path (animating `stroke-dashoffset` from 100% to 0) directly above the snapped zone's projected 3D coordinates. This breaks the 3D depth illusion with a satisfying flat-graphic surprise.
+*   **Orientation Adaptability**: Real-time layout recalculations adapt the camera position, Field of View (FOV), drop zones, and boundary borders seamlessly between **Portrait** and **Landscape** modes, ensuring optimal layout flow for all device aspect ratios.
 
-- Three.js integration for high-performance 3D graphics
-- TypeScript support for better development experience
-- Hot module replacement during development
-- Game structure with Three.js and SDK integration
-- Event handling (resize, pause, resume, volume, etc.)
-- Installation button implementation
-- Interaction tracking
-- Responsive 3D scene scaling
-- GLTF model loading and animation
-- Proper lighting setup
-- Smooth animation loop management
+---
 
-## Getting Started
+## 2. Tech Stack & Architecture
 
-1. Clone this repository
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-3. Start development server:
-   ```bash
-   npm run dev
-   ```
-4. Build for production:
-   ```bash
-   npm run build
-   ```
+The playable is built as a lightweight, single-page WebGL application, prioritizing high performance and zero network overhead.
 
-## Project Structure
+### Engines & Frameworks
+*   **Graphics Engine**: **Three.js** (v0.174.0) for WebGL rendering, directional lighting, materials, and 3D rounded geometry.
+*   **Animation Engine**: **GSAP** (v3.15.0) for UI tweens, staggered tile bounce-in, elastic squash/stretch effects, snapping animations, and camera shake.
+*   **Playable SDK**: **@smoud/playable-sdk** (v1.0.24) to manage playable lifecycle hooks (`init`, `start`, `pause`, `finish`, `install`) and user interaction logging.
 
-- `src/index.ts` - Main entry point with SDK, Three.js and Game initialization
-- `src/Game.ts` - Game logic and Three.js scene setup
-- `src/index.css` - Styles for your playable
-- `src/index.html` - HTML template
-- `assets/` - Directory for your game assets (3D models, textures, etc.)
+### Architecture Approach
+*   **Modular Entry Points**:
+    *   `src/index.ts`: Manages ad lifecycle events and binds them to the main loop.
+    *   `src/Game.ts`: The central core. Contains 3D scene setup, game loops, responsive layout math, spring physics, and circle-circle collision solvers.
+    *   `src/SoundManager.ts`: Synthesizes audio programmatically using the browser's **Web Audio API** (`AudioContext`), eliminating the need to load external MP3/WAV audio assets and saving bandwidth.
+*   **Zero-Network Asset Optimization**:
+    *   **Textures**: Textures (including wood grain table color, normal maps, text decals, inner trays, and icons) are generated dynamically at runtime on HTML5 Canvas elements and converted into `THREE.CanvasTexture` objects.
+    *   **Result**: The production bundle compiles into a single, fully-inlined HTML file under **608 KB** (well within strict ad network limits).
 
-## Looking for More?
+---
 
-Check out other available templates for different frameworks and use cases:
-- [playable-template-base](https://github.com/smoudjs/playable-template-base) - Template base version
-- [playable-template-base-js](https://github.com/smoudjs/playable-template-base-js) - Template base version (JavaScript)
-- [playable-template-pixi](https://github.com/smoudjs/playable-template-pixi) - Template with PixiJS
-- [playable-template-phaser](https://github.com/smoudjs/playable-template-phaser) - Template with Phaser
+## 3. Installed Dependencies
+
+### Production Dependencies (Bundled)
+*   `three` (`^0.174.0`): WebGL 3D graphics library.
+*   `gsap` (`^3.15.0`): Tweening library for custom UI and spring transitions.
+*   `@smoud/playable-sdk` (`^1.0.24`): Ad network SDK interface wrapper.
+
+### Development Dependencies (Build & Tooling)
+*   `@smoud/playable-scripts` (`^1.1.4`): Custom build script to transpile TypeScript, process styles, inline assets, and compile the game into a single file.
+*   `@types/three` (`^0.174.0`): TypeScript typings for Three.js.
+*   `prettier` (`^2.7.1`): Code formatting.
+
+---
+
+## 4. Build Tools & Packaging
+
+*   **Bundler**: `@smoud/playable-scripts` is used to package the app.
+*   **Build Commands**:
+    *   Development Server: `npm run dev`
+    *   Single-File Production Bundle: `npm run build`
+*   **Ad Network Targets**: The single-file HTML bundle generated in the `dist/` directory is designed to work out-of-the-box on:
+    *   **AppLovin**
+    *   **Mintegral**
+    *   **Google Ads**
+    *   **Unity Ads**
+    *   **Moloco**
+    *   **Facebook**
+
+---
+
+## 5. AI Tools Used During Development
+
+AI tools were integrated to accelerate ideas investigation, code structure design, and implementation efficiency:
+
+*   **Claude**:
+    *   *Usage*: Used during the initial ideas investigation and conceptual drafts phase to outline the interaction logic and flow (referencing initial game draft files like `playable_ad_plan_word_association.html`).
+*   **Gemini (Custom Gems)**:
+    *   *Usage*: Utilized custom-created Gemini Gems specifically configured for Playable Ad creation to assist with:
+        *   WebGL rendering configuration and Three.js physics implementation.
+        *   Implementing the circle-circle collision solver (with double-pass iteration and velocity filtration).
+        *   Writing the dynamic particle systems (ART splatters vs. SPORT dust kicks).
+        *   Animating DOM-based SVG checks for the "Material Surprise" snapping feedback.
+*   **Project Build Scaffold**:
+    *   *Usage*: Utilized the [playable-template-three](https://github.com/smoudjs/playable-template-three) template scaffold as the baseline framework to ensure compliance with strict single-file inlining rules.

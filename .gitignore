@@ -1,4 +1,4 @@
-dist
+
 
 # dependencies
 /node_modules
@@ -48,3 +48,5 @@ docs/.vuepress/dist
 .env
 /ssl
 .aider*
+PLAYABLE_AD_PIXI_INSTRUCTIONS_v1 (2).md
+playable_ad_plan_word_association.html
