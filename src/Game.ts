@@ -5,6 +5,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { gsap } from 'gsap';
+import { SoundManager } from './SoundManager';
 
 interface Category {
   id: string;
@@ -48,6 +49,9 @@ export class Game {
   private baseCameraY: number = 14;
   private baseCameraZ: number = 12;
   
+  private sounds: SoundManager;
+  private isMobile: boolean = false;
+  
   private isLandscape: boolean = false;
   private draggedTile: THREE.Mesh | null = null;
   private dragOffset: THREE.Vector3 = new THREE.Vector3();
@@ -78,10 +82,13 @@ export class Game {
     this.camera.position.set(0, 14, 12);
     this.camera.lookAt(0, 0, 2.0);
 
+    this.isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+    this.sounds = new SoundManager();
+
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setSize(width, height);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = true;
+    this.renderer.setPixelRatio(this.isMobile ? 1.0 : Math.min(window.devicePixelRatio, 1.5));
+    this.renderer.shadowMap.enabled = !this.isMobile;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.1;
@@ -508,6 +515,8 @@ export class Game {
   private onPointerDown = (e: PointerEvent): void => {
     if (this.completedGroups >= 2) return;
 
+    this.sounds.playGrabSFX();
+
     // Dismiss abstract hint pointer on first interaction
     if (this.hintPointer) {
       if (this.hintTween) this.hintTween.kill();
@@ -633,6 +642,12 @@ export class Game {
       const basePos = snappedToZone.position.clone();
       basePos.y += 0.4;
 
+      // Play snap arpeggio sound and haptics vibration
+      this.sounds.playSnapSFX();
+      if (this.isMobile && navigator.vibrate) {
+        navigator.vibrate([30, 50, 30]);
+      }
+
       // Reveal category
       const innerMesh = snappedToZone.userData.innerMesh as THREE.Mesh;
       const innerMat = innerMesh.material as THREE.MeshPhysicalMaterial;
@@ -746,7 +761,7 @@ export class Game {
       this.hintPointer.position.z = this.tiles[0].position.z;
     }
 
-    // Camera parallax + ambient wave movement (centered at 0, 0, 1.2)
+    // Camera parallax + ambient wave movement (centered at 0, 0, 0.5)
     if (!this.draggedTile && this.completedGroups < 2) {
       const targetX = this.mouse.x * 2;
       const targetY = this.baseCameraY;
@@ -762,7 +777,9 @@ export class Game {
     }
     this.camera.lookAt(0, 0, 0.5);
 
-    this.noisePass.material.uniforms.time.value = time;
+    if (!this.isMobile) {
+      this.noisePass.material.uniforms.time.value = time;
+    }
 
     // Reset lines
     let lineIdx = 0;
@@ -861,6 +878,14 @@ export class Game {
       if (tile.userData.isMagnetized) {
         tile.rotation.y += (0 - tile.rotation.y) * 0.1;
       }
+
+      // Velocity-based tilt logic
+      if (!tile.userData.isDragging) {
+        const targetTiltX = tile.userData.velocity.z * 1.5;
+        const targetTiltZ = -tile.userData.velocity.x * 1.5;
+        tile.rotation.x += (targetTiltX - tile.rotation.x) * 0.1;
+        tile.rotation.z += (targetTiltZ - tile.rotation.z) * 0.1;
+      }
     });
 
     // ==========================================
@@ -926,6 +951,20 @@ export class Game {
             tileB.userData.velocity.x += nx * bounceForce;
             tileB.userData.velocity.z += nz * bounceForce;
           }
+
+          // Play collision tick sound
+          this.sounds.playCollisionSFX(overlap);
+
+          // Elastic bounciness scale squash (GSAP)
+          gsap.killTweensOf(tileA.scale);
+          gsap.killTweensOf(tileB.scale);
+          gsap.to(tileA.scale, { x: 1.15, y: 0.72, z: 1.15, duration: 0.08, yoyo: true, repeat: 1 });
+          gsap.to(tileB.scale, { x: 1.15, y: 0.72, z: 1.15, duration: 0.08, yoyo: true, repeat: 1 });
+
+          // Haptics vibration tap on mobile
+          if (this.isMobile && navigator.vibrate) {
+            navigator.vibrate(12);
+          }
         }
       }
     }
@@ -977,7 +1016,11 @@ export class Game {
       }
     }
 
-    this.composer.render();
+    if (this.isMobile) {
+      this.renderer.render(this.scene, this.camera);
+    } else {
+      this.composer.render();
+    }
   }
 
   // ==========================================
@@ -1027,6 +1070,7 @@ export class Game {
     this.camera.aspect = aspect;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height);
+    this.renderer.setPixelRatio(this.isMobile ? 1.0 : Math.min(window.devicePixelRatio, 1.5));
     this.composer.setSize(width, height);
   }
 
@@ -1042,6 +1086,7 @@ export class Game {
 
   public volume(value: number): void {
     console.log(`Volume changed to: ${value}`);
+    this.sounds.setMute(value === 0);
   }
 
   public finish(): void {
